@@ -21,6 +21,8 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:4200",
+  "https://landing-dev.dyadmd.com",
+  "https://dyadmd.com",
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
