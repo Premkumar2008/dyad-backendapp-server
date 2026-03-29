@@ -33,23 +33,23 @@ router.post("/login", async (req, res) => {
     }
 
     if(!user.email_verified){
- return res.status(403).json({
-  success: false,
-  message:"Please verify your email first before logging in"
- });
-}
+      return res.status(403).json({
+        success: false,
+        message:"Please verify your email first before logging in"
+      });
+    }
 
-  const accessToken = jwt.sign(
- { id: user.id },
- process.env.JWT_SECRET,
- { expiresIn: "15m" }
-);
+    const accessToken = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
 
-const refreshToken = jwt.sign(
- { id: user.id },
- process.env.JWT_REFRESH_SECRET,
- { expiresIn: "7d" }
-);
+    const refreshToken = jwt.sign(
+      { id: user.id },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "7d" }
+    );
     res.json({
       success: true,
       accessToken,

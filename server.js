@@ -14,6 +14,7 @@ import verifyOtpRoute from "./routes/verifyOtp.js";
 import forgotPasswordRoute from "./routes/forgotPassword.js";
 import testRoute from "./routes/test.js";
 import contactRequestsRoute from "./routes/contactRequests.js";
+import usersRoute from "./routes/users.js";
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use("/api", verifyOtpRoute);
 app.use("/api", forgotPasswordRoute);
 app.use("/api", testRoute);
 app.use("/api", contactRequestsRoute);
+app.use("/api", usersRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
