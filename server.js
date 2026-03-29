@@ -1,6 +1,6 @@
 import express from "express";
-import dotenv from "dotenv";
 import cors from "cors";
+import dotenv from "dotenv";
 dotenv.config();
 
 import registerRoute from "./routes/register.js";
@@ -17,36 +17,27 @@ import contactRequestsRoute from "./routes/contactRequests.js";
 
 const app = express();
 
-// CORS configuration
-const corsOptions = {
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://localhost:4200",
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    
-    // List of allowed origins
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://landing-dev.dyadmd.com',
-      'https://www.landing-dev.dyadmd.com',
-      // Add your deployed frontend domain here
-      process.env.FRONTEND_URL
-    ].filter(Boolean);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    return callback(null, true); // Allow all origins for now; restrict later
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Content-Range', 'X-Total-Count']
-};
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 
-app.use(cors(corsOptions));
 app.use(express.json());
 
 app.use("/api", profileRoute);
@@ -61,6 +52,7 @@ app.use("/api", forgotPasswordRoute);
 app.use("/api", testRoute);
 app.use("/api", contactRequestsRoute);
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
