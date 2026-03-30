@@ -4,6 +4,55 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
+// Check if email exists
+router.post("/check-email", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required"
+      });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format"
+      });
+    }
+
+    const result = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length > 0) {
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        message: "Email exists"
+      });
+    } else {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: "Email does not exist"
+      });
+    }
+
+  } catch (err) {
+    console.error("Check email error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to check email"
+    });
+  }
+});
+
 router.get("/users", authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(

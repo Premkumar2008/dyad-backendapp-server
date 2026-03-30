@@ -19,29 +19,33 @@ router.post("/verify-otp", async (req, res) => {
     if (!otpData) {
       return res.status(400).json({
         success: false,
-        message: "No OTP was sent to this email address"
+        message: "No OTP was sent to this email address",
+        email_verified: false
       });
     }
 
     if (new Date() > otpData.expiry) {
       return res.status(400).json({
         success: false,
-        message: "OTP has expired. Please request a new one"
+        message: "OTP has expired. Please request a new one",
+        email_verified: false
       });
     }
 
     if (otpData.otp !== otp) {
       return res.status(400).json({
         success: false,
-        message: "Invalid OTP. Please check and try again"
+        message: "Invalid OTP. Please check and try again",
+        email_verified: false
       });
     }
 
-    // Update user's email_verified status to true
-    await pool.query(
+    // OTP verification successful - set email_verified to true
+    const updateResult = await pool.query(
       `UPDATE users 
        SET email_verified = true 
-       WHERE email = $1`,
+       WHERE email = $1
+       RETURNING id, email_verified`,
       [email]
     );
 
@@ -50,7 +54,9 @@ router.post("/verify-otp", async (req, res) => {
 
     res.json({
       success: true,
-      message: "OTP verified successfully"
+      message: "OTP verified successfully",
+      email_verified: true,
+      user: updateResult.rows[0]
     });
 
   } catch (err) {

@@ -70,8 +70,3 @@ COMMENT ON COLUMN users.otp_expiry IS 'OTP expiration timestamp';
 COMMENT ON COLUMN users.npi IS 'National Provider Identifier (for medical professionals)';
 COMMENT ON COLUMN users.updated_at IS 'Last update timestamp';
 COMMENT ON COLUMN users.userrole IS 'Additional user role field';
-
--- Optional: Insert default admin user (remove in production)
--- INSERT INTO users (first_name, last_name, email, password_hash, role, userrole, email_verified)
--- VALUES ('Admin', 'User', 'admin@example.com', '$2b$10$...', 'admin', 'admin', TRUE)
--- ON CONFLICT (email) DO NOTHING;

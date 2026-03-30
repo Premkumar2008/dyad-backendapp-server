@@ -8,7 +8,7 @@ router.post("/register", async (req,res)=>{
 
  try{
 
- const {email,password,firstName,lastName,npi,phone} = req.body;
+ const {email,password,firstName,lastName,npi,phone,emailVerified} = req.body;
 
  if(!email || !password || !firstName || !lastName || !npi || !phone){
   return res.status(400).json({
@@ -19,16 +19,19 @@ router.post("/register", async (req,res)=>{
 
  const hash = await bcrypt.hash(password,10);
 
+ // Use emailVerified from payload if provided, otherwise default to false
+ const isEmailVerified = emailVerified === true || emailVerified === "true";
+
  await pool.query(
   `INSERT INTO users
   (email,password_hash,first_name,last_name,npi,phone,email_verified,role)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-  [email,hash,firstName,lastName,npi,phone,false,'user']
+  [email,hash,firstName,lastName,npi,phone,isEmailVerified,'user']
  );
 
  res.json({
   success: true,
-  message:"User registered successfully. Please verify your email."
+  message: isEmailVerified ? "User registered successfully." : "User registered successfully. Please verify your email."
  });
 
  }catch(err){

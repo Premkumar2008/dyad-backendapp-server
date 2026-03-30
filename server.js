@@ -12,7 +12,6 @@ import sendEmailOtp from "./routes/sendEmailOtp.js";
 import apiDocumentationRoute from "./routes/apiDocumentation.js";
 import verifyOtpRoute from "./routes/verifyOtp.js";
 import forgotPasswordRoute from "./routes/forgotPassword.js";
-import testRoute from "./routes/test.js";
 import contactRequestsRoute from "./routes/contactRequests.js";
 import usersRoute from "./routes/users.js";
 
@@ -34,7 +33,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    return callback(null, true); // Allow all origins for now; restrict later
+    // For development, allow all origins
+    return callback(null, true);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -52,7 +52,6 @@ app.use("/api", sendEmailOtp);
 app.use("/api", apiDocumentationRoute);
 app.use("/api", verifyOtpRoute);
 app.use("/api", forgotPasswordRoute);
-app.use("/api", testRoute);
 app.use("/api", contactRequestsRoute);
 app.use("/api", usersRoute);
 
