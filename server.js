@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { google } from "googleapis";
 dotenv.config();
 
 import registerRoute from "./routes/register.js";
@@ -14,6 +15,7 @@ import verifyOtpRoute from "./routes/verifyOtp.js";
 import forgotPasswordRoute from "./routes/forgotPassword.js";
 import contactRequestsRoute from "./routes/contactRequests.js";
 import usersRoute from "./routes/users.js";
+import recaptchaRoute from "./routes/recaptcha.js";
 
 const app = express();
 
@@ -54,6 +56,7 @@ app.use("/api", verifyOtpRoute);
 app.use("/api", forgotPasswordRoute);
 app.use("/api", contactRequestsRoute);
 app.use("/api", usersRoute);
+app.use("/api", recaptchaRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
