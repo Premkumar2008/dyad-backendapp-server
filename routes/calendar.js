@@ -3,18 +3,7 @@ import { google } from "googleapis";
 
 const router = express.Router();
 
-const oauth2Client = new google.auth.OAuth2(
-  client_id,
-  CLIENT_SECRET,
-  "http://localhost:5000/auth/callback"
-);
 
-const url = oauth2Client.generateAuthUrl({
-  access_type: "offline",
-  scope: ["https://www.googleapis.com/auth/calendar"],
-});
-
-console.log("OAuth URL:", url);
 
 const auth = new google.auth.GoogleAuth({
   keyFile: "./routes/service-account.json",
