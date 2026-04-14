@@ -157,6 +157,8 @@ config/staging.js
 *.crt
 ssl/
 certs/
+service-account.json
+**/service-account.json
 
 # Session files
 sessions/
@@ -266,3 +268,5 @@ config/staging.js
 *.crt
 ssl/
 certs/
+service-account.json
+**/service-account.json
