@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { google } from "googleapis";
 dotenv.config();
 
 import registerRoute from "./routes/register.js";
@@ -16,6 +15,7 @@ import forgotPasswordRoute from "./routes/forgotPassword.js";
 import contactRequestsRoute from "./routes/contactRequests.js";
 import usersRoute from "./routes/users.js";
 import recaptchaRoute from "./routes/recaptcha.js";
+import calendarRoute from "./routes/calendar.js";
 
 const app = express();
 
@@ -45,9 +45,9 @@ app.use(cors({
 
 app.use(express.json());
 
-app.use("/api", profileRoute);
 app.use("/api", registerRoute);
 app.use("/api", loginRoute);
+app.use("/api", profileRoute);
 app.use("/api", refreshRoute);
 app.use("/api", verifyEmailRoute);
 app.use("/api", sendEmailOtp);
@@ -57,6 +57,7 @@ app.use("/api", forgotPasswordRoute);
 app.use("/api", contactRequestsRoute);
 app.use("/api", usersRoute);
 app.use("/api", recaptchaRoute);
+app.use("/api", calendarRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

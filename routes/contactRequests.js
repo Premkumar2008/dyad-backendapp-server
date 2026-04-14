@@ -5,73 +5,6 @@ import { google } from "googleapis";
 
 const router = express.Router();
 
-// Setup Google Calendar OAuth
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.REDIRECT_URI
-);
-
-// Set up credentials if refresh token is available
-if (process.env.GOOGLE_REFRESH_TOKEN) {
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
-  });
-}
-
-const calendar = google.calendar({
-  version: "v3",
-  auth: oauth2Client,
-});
-
-// Function to create calendar event
-async function createCalendarEvent(contactData) {
-  try {
-    const { name, email, phoneNumber, organization, message, scheduledTime } = contactData;
-    
-    if (!scheduledTime) {
-      console.log("No scheduled time provided, skipping calendar event creation");
-      return null;
-    }
-
-    // Parse the scheduled time
-    const scheduledDate = new Date(scheduledTime);
-    
-    // Add 30 minutes for end time
-    const endTime = new Date(scheduledDate.getTime() + 30 * 60000); // 30 minutes in milliseconds
-
-    const event = {
-      summary: name, // Use name as title
-      description: `Contact: ${name}\nEmail: ${email}\nPhone: ${phoneNumber}\nOrganization: ${organization}\n\n${message || ''}`,
-      start: {
-        dateTime: scheduledDate.toISOString(),
-        timeZone: "Asia/Kolkata",
-      },
-      end: {
-        dateTime: endTime.toISOString(),
-        timeZone: "Asia/Kolkata",
-      },
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: 'email', minutes: 24 * 60 }, // 1 day before
-          { method: 'popup', minutes: 30 } // 30 minutes before
-        ]
-      }
-    };
-
-    const response = await calendar.events.insert({
-      calendarId: "primary", // Your primary calendar (premkumar200894ss@gmail.com)
-      resource: event,
-    });
-
-    console.log("Calendar event created:", response.data.htmlLink);
-    return response.data;
-  } catch (error) {
-    console.error("Calendar event creation error:", error);
-    return null;
-  }
-}
 
 // Create a new contact request
 router.post("/contact-requests", async (req, res) => {
@@ -155,19 +88,12 @@ router.post("/contact-requests", async (req, res) => {
       scheduledTime
     };
 
-    const calendarEvent = await createCalendarEvent(contactData);
+   
 
     res.status(201).json({
       success: true,
       message: "Contact request submitted successfully",
-      data: result.rows[0],
-      calendarEvent: calendarEvent ? {
-        id: calendarEvent.id,
-        title: calendarEvent.summary,
-        start: calendarEvent.start,
-        end: calendarEvent.end,
-        link: calendarEvent.htmlLink
-      } : null
+      data: result.rows[0]
     });
 
   } catch (err) {
@@ -381,74 +307,8 @@ router.delete("/contact-requests/:id", async (req, res) => {
   }
 });
 
-// Google OAuth endpoints for calendar setup
-router.get("/auth/google", (req, res) => {
-  const url = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    scope: ["https://www.googleapis.com/auth/calendar"],
-    prompt: "consent"
-  });
-  res.json({ authUrl: url });
-});
 
-router.get("/auth/google/callback", async (req, res) => {
-  try {
-    const { code } = req.query;
-    const { tokens } = await oauth2Client.getToken(code);
-    
-    console.log('Refresh token received:', tokens.refresh_token);
-    console.log('Add this to your .env file: GOOGLE_REFRESH_TOKEN=' + tokens.refresh_token);
-    
-    oauth2Client.setCredentials(tokens);
-    global.oauthClient = oauth2Client;
-    
-    res.send(`
-      <h2>Authentication Successful!</h2>
-      <p>Your Google Calendar is now connected.</p>
-      <p>Refresh Token: <code>${tokens.refresh_token}</code></p>
-      <p>Add this token to your .env file as GOOGLE_REFRESH_TOKEN</p>
-      <p>You can close this window.</p>
-    `);
-  } catch (error) {
-    console.error('Auth callback error:', error);
-    res.status(500).send('Authentication failed');
-  }
-});
 
-// Test calendar event creation
-router.post("/test-calendar-event", async (req, res) => {
-  try {
-    const { name, email, phoneNumber, organization, message, scheduledTime } = req.body;
-    
-    const contactData = { name, email, phoneNumber, organization, message, scheduledTime };
-    const calendarEvent = await createCalendarEvent(contactData);
-    
-    if (calendarEvent) {
-      res.json({
-        success: true,
-        message: "Test calendar event created successfully",
-        event: {
-          id: calendarEvent.id,
-          title: calendarEvent.summary,
-          start: calendarEvent.start,
-          end: calendarEvent.end,
-          link: calendarEvent.htmlLink
-        }
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: "Failed to create calendar event"
-      });
-    }
-  } catch (error) {
-    console.error("Test calendar event error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to create test calendar event",
-      error: error.message
-    });
-  }
-});
+
 
 export default router;
