@@ -53,6 +53,11 @@ ALTER TABLE users
 ADD CONSTRAINT IF NOT EXISTS chk_email_verified 
 CHECK (email_verified IN (TRUE, FALSE));
 
+-- Add unique constraint for NPI
+ALTER TABLE users 
+ADD CONSTRAINT IF NOT EXISTS users_npi_unique 
+UNIQUE (npi);
+
 -- Comments for documentation
 COMMENT ON TABLE users IS 'User accounts table for authentication and profile management';
 COMMENT ON COLUMN users.id IS 'Unique identifier for each user';

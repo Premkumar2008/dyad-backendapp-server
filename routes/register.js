@@ -10,10 +10,10 @@ router.post("/register", async (req,res)=>{
 
  const {email,password,firstName,lastName,npi,phone,emailVerified} = req.body;
 
- if(!email || !password || !firstName || !lastName || !npi || !phone){
+ if(!email || !password || !npi || !phone){
   return res.status(400).json({
     success: false,
-    message:"All fields are required: email, password, firstName, lastName, npi, phone"
+    message:"All fields are required: email, password, npi, phone"
   });
  }
 
@@ -26,7 +26,7 @@ router.post("/register", async (req,res)=>{
   `INSERT INTO users
   (email,password_hash,first_name,last_name,npi,phone,email_verified,role)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-  [email,hash,firstName,lastName,npi,phone,isEmailVerified,'user']
+  [email,hash,firstName || null,lastName || null,npi,phone,isEmailVerified,'user']
  );
 
  res.json({
@@ -38,10 +38,23 @@ router.post("/register", async (req,res)=>{
   console.error("Registration error:", err);
 
   if(err.code === '23505'){ // Unique constraint violation
-   return res.status(409).json({
-     success: false,
-     message: "Email already exists"
-   });
+   // Check if it's email or NPI constraint violation
+   if(err.constraint && err.constraint.includes('email')) {
+     return res.status(409).json({
+       success: false,
+       message: "Email already exists"
+     });
+   } else if(err.constraint && err.constraint.includes('npi')) {
+     return res.status(409).json({
+       success: false,
+       message: "NPI is already registered. Please try to login"
+     });
+   } else {
+     return res.status(409).json({
+       success: false,
+       message: "Email or NPI already exists"
+     });
+   }
   }
   
   if(err.code === '23502'){ // Not null violation
