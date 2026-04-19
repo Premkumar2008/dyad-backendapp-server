@@ -17,6 +17,7 @@ import usersRoute from "./routes/users.js";
 import recaptchaRoute from "./routes/recaptcha.js";
 import calendarRoute from "./routes/calendar.js";
 import npiRegistryRoute from "./routes/npiRegistry.js";
+import calendlyWebhookRoute from "./routes/calendly-webhook.js";
 
 const app = express();
 
@@ -60,6 +61,7 @@ app.use("/api", usersRoute);
 app.use("/api", recaptchaRoute);
 app.use("/api", calendarRoute);
 app.use("/api", npiRegistryRoute);
+app.use("/api/calendly", calendlyWebhookRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

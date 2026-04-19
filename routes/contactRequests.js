@@ -1,6 +1,5 @@
 import express from "express";
 import { pool } from "../config/db.js";
-import { verifyRecaptcha } from "../middleware/recaptcha.js";
 import { google } from "googleapis";
 
 const router = express.Router();
@@ -15,33 +14,8 @@ router.post("/contact-requests", async (req, res) => {
       email,
       organization,
       message,
-      scheduledTime,
-      recaptchaToken
+      scheduledTime
     } = req.body;
-
-    // Verify reCAPTCHA token first
-    if (!recaptchaToken) {
-      return res.status(400).json({
-        success: false,
-        message: "reCAPTCHA verification is required"
-      });
-    }
-
-    // Temporary bypass for testing - remove this in production
-    if (recaptchaToken === "test_token") {
-      console.log("Using test token - bypassing reCAPTCHA verification");
-    } else {
-      const recaptchaResult = await verifyRecaptcha(recaptchaToken, req.ip);
-      
-      if (!recaptchaResult.success) {
-        return res.status(400).json({
-          success: false,
-          message: "reCAPTCHA verification failed",
-          error: recaptchaResult.message,
-          errorCodes: recaptchaResult.errorCodes
-        });
-      }
-    }
 
     // Validate required fields
     if (!name || !phoneNumber || !email || !organization) {

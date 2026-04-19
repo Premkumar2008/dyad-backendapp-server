@@ -74,6 +74,28 @@ router.get("/users", authMiddleware, async (req, res) => {
   }
 });
 
+// Public users list endpoint (no authentication required)
+router.get("/userslist", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, first_name, last_name, email, npi, phone, role, email_verified, created_at FROM users ORDER BY created_at DESC"
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+      count: result.rows.length
+    });
+
+  } catch (err) {
+    console.error("Get users error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve users"
+    });
+  }
+});
+
 router.put("/users/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
