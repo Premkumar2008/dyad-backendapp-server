@@ -1,6 +1,7 @@
 -- Early Access Requests Table
 CREATE TABLE IF NOT EXISTS early_access_requests (
     id              SERIAL PRIMARY KEY,
+    npi             VARCHAR(10),
     practice_name   VARCHAR(255) NOT NULL,
     contact_name    VARCHAR(255) NOT NULL,
     phone_number    VARCHAR(10)  NOT NULL,
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS early_access_requests (
     providers       VARCHAR(50),
     locations       VARCHAR(50),
     claim_volume    VARCHAR(50),
+    send_email_confirm BOOLEAN    DEFAULT NULL,
     status          VARCHAR(50)  NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending', 'reviewing', 'approved', 'rejected')),
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,

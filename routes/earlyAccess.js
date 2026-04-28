@@ -17,6 +17,7 @@ const VALID_PRACTICE_TYPES = [
 router.post("/api-early-access", async (req, res) => {
   try {
     const {
+      npi,
       practiceName,
       contactName,
       phoneNumber,
@@ -54,15 +55,26 @@ router.post("/api-early-access", async (req, res) => {
       });
     }
 
+    // NPI: exactly 10 digits when provided
+    if (npi !== undefined && npi !== null && npi !== "") {
+      const npiDigits = String(npi).replace(/\D/g, "");
+      if (npiDigits.length !== 10) {
+        return res.status(400).json({
+          success: false,
+          message: "NPI must be exactly 10 digits"
+        });
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO early_access_requests
-         (practice_name, contact_name, phone_number, email, title, practice_type, providers, locations, claim_volume)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (npi, practice_name, contact_name, phone_number, email, title, practice_type, providers, locations, claim_volume)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING
-         id, practice_name, contact_name, phone_number, email, title,
+         id, npi, practice_name, contact_name, phone_number, email, title,
          practice_type, providers, locations, claim_volume, status, created_at`,
       [
+        npi ? String(npi).trim() : null,
         practiceName.trim(),
         contactName.trim(),
         phoneDigits,
