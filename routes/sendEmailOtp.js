@@ -39,7 +39,11 @@ router.post("/send-email-otp", async (req,res)=>{
       from:process.env.EMAIL_USER,
       to:email,
       subject:"Your Verification OTP",
-      html:`<h2>Your OTP is ${otp}</h2>`
+      html:`<p>Dyad Practice Solutions - Your OTP is <strong>${otp}</strong></p>
+        <br/>
+        <p>Regards,</p>
+        <p style="font-weight:700;color:#1a6faf;margin:0;">The Dyad Team</p>
+        <p style="color:#888888;font-size:13px;margin:0;">Dyad Practice Solutions</p>`
     });
 
     // store temporarily in memory (or DB temp table)
