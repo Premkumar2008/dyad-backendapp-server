@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const fs=require\\('fs'\\);const b64=fs.readFileSync\\('assets/logo.png'\\).toString\\('base64'\\);console.log\\(b64.substring\\(0,50\\)\\);console.log\\('LENGTH:'+b64.length\\);\")",
+      "Bash(del \"d:\\\\dyadrailwaybk\\\\dyad-backend-server\\\\utils\\\\logoBase64.js\")"
+    ]
+  }
+}

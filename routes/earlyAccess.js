@@ -3,17 +3,6 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
-const VALID_PRACTICE_TYPES = [
-  "Independent Practice",
-  "Group Practice",
-  "Hospital / Health System",
-  "Urgent Care",
-  "Specialty Clinic",
-  "Federally Qualified Health Center (FQHC)",
-  "Ambulatory Surgery Center (ASC)",
-  "Other"
-];
-
 router.post("/api-early-access", async (req, res) => {
   try {
     const {
@@ -159,6 +148,59 @@ router.post("/api-early-access/check-email", async (req, res) => {
       success: false,
       exists: null,
       message: "Unable to verify email at this time. Please try again later."
+    });
+  }
+});
+
+router.post("/api-early-access/check-npi", async (req, res) => {
+  try {
+    const { npi } = req.body;
+
+    if (!npi) {
+      return res.status(400).json({
+        success: false,
+        exists: null,
+        message: "NPI number is required"
+      });
+    }
+
+    const npiDigits = String(npi).replace(/\D/g, "");
+    if (npiDigits.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        exists: null,
+        message: "NPI must be exactly 10 digits"
+      });
+    }
+
+    const result = await pool.query(
+      "SELECT id, status, created_at FROM early_access_requests WHERE npi = $1",
+      [npiDigits]
+    );
+
+    if (result.rows.length > 0) {
+      const { status, created_at } = result.rows[0];
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        status,
+        message: `An early access request with this NPI already exists (status: ${status}).`,
+        submittedAt: created_at
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: false,
+      message: "This NPI is not yet registered. You are eligible to request early access."
+    });
+
+  } catch (err) {
+    console.error("Early access check-npi error:", err);
+    res.status(500).json({
+      success: false,
+      exists: null,
+      message: "Unable to verify NPI at this time. Please try again later."
     });
   }
 });
