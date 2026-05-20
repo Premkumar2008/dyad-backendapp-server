@@ -21,6 +21,7 @@ import calendlyWebhookRoute from "./routes/calendly-webhook.js";
 import earlyAccessRoute from "./routes/earlyAccess.js";
 import sendEmailRoute from "./routes/sendEmail.js";
 import taxonomiesRoute from "./routes/taxonomies.js";
+import adminLoginRoute from "./routes/adminLogin.js";
 
 const app = express();
 
@@ -68,6 +69,7 @@ app.use("/api/calendly", calendlyWebhookRoute);
 app.use("/api", earlyAccessRoute);
 app.use("/api", sendEmailRoute);
 app.use("/api", taxonomiesRoute);
+app.use("/api", adminLoginRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
