@@ -20,8 +20,12 @@ import npiRegistryRoute from "./routes/npiRegistry.js";
 import calendlyWebhookRoute from "./routes/calendly-webhook.js";
 import earlyAccessRoute from "./routes/earlyAccess.js";
 import sendEmailRoute from "./routes/sendEmail.js";
+import onboardingScheduleConfirmationRoute from "./routes/onboardingScheduleConfirmation.js";
+import onboardingStepsRoute from "./routes/onboardingSteps.js";
+import onboardingClientRoute from "./routes/onboardingClient.js";
 import taxonomiesRoute from "./routes/taxonomies.js";
 import adminLoginRoute from "./routes/adminLogin.js";
+import callsScheduledAdminRoute from "./routes/callsScheduledAdmin.js";
 
 const app = express();
 
@@ -49,7 +53,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'access-control-allow-methods', 'access-control-allow-headers', 'access-control-allow-origin']
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: "25mb" }));
 
 app.use("/api", registerRoute);
 app.use("/api", loginRoute);
@@ -68,8 +72,12 @@ app.use("/api", npiRegistryRoute);
 app.use("/api/calendly", calendlyWebhookRoute);
 app.use("/api", earlyAccessRoute);
 app.use("/api", sendEmailRoute);
+app.use("/api", onboardingScheduleConfirmationRoute);
+app.use("/api", onboardingStepsRoute);
+app.use("/api", onboardingClientRoute);
 app.use("/api", taxonomiesRoute);
 app.use("/api", adminLoginRoute);
+app.use("/api", callsScheduledAdminRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

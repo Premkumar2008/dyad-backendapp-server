@@ -102,6 +102,59 @@ CREATE TRIGGER update_contact_requests_updated_at
     EXECUTE FUNCTION update_contact_requests_updated_at();
 
 -- =====================================================
+-- ONBOARDING STEPS TABLE
+-- =====================================================
+CREATE TABLE IF NOT EXISTS onboarding_steps (
+    id              SERIAL PRIMARY KEY,
+    onboarding_id   TEXT NOT NULL,
+    step            INTEGER NOT NULL DEFAULT 1
+                        CHECK (step BETWEEN 1 AND 6),
+    payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    step_1_payload  JSONB,
+    step_2_payload  JSONB,
+    step_3_payload  JSONB,
+    step_4_payload  JSONB,
+    step_5_payload  JSONB,
+    step_6_payload  JSONB,
+    npi             TEXT,
+    contact_email   TEXT,
+    contact_name    TEXT,
+    call_event_id   TEXT,
+    meeting_id      TEXT,
+    status          TEXT NOT NULL DEFAULT 'Onboarding',
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (onboarding_id, step)
+);
+
+-- Onboarding Steps Table Indexes
+CREATE INDEX IF NOT EXISTS idx_onboarding_steps_onboarding_id
+    ON onboarding_steps (onboarding_id);
+CREATE INDEX IF NOT EXISTS idx_onboarding_steps_npi
+    ON onboarding_steps (npi);
+CREATE INDEX IF NOT EXISTS idx_onboarding_steps_call_event_id
+    ON onboarding_steps (call_event_id);
+CREATE INDEX IF NOT EXISTS idx_onboarding_steps_meeting_id
+    ON onboarding_steps (meeting_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_onboarding_steps_contact_email_unique
+    ON onboarding_steps (LOWER(contact_email))
+    WHERE contact_email IS NOT NULL;
+
+-- Auto-update trigger for onboarding_steps
+CREATE OR REPLACE FUNCTION update_onboarding_steps_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_onboarding_steps_updated_at
+    BEFORE UPDATE ON onboarding_steps
+    FOR EACH ROW
+    EXECUTE FUNCTION update_onboarding_steps_updated_at();
+
+-- =====================================================
 -- TABLE COMMENTS
 -- =====================================================
 -- Users Table Comments
@@ -154,7 +207,7 @@ COMMENT ON COLUMN contact_requests.updated_at IS 'Last update timestamp';
 -- SUMMARY
 -- =====================================================
 -- 
--- TABLES: 2 (users, contact_requests)
+-- TABLES: 3 (users, contact_requests, onboarding_steps)
 -- 
 -- USERS TABLE:
 -- - User authentication and profiles
@@ -167,7 +220,13 @@ COMMENT ON COLUMN contact_requests.updated_at IS 'Last update timestamp';
 -- - Consultation requests
 -- - Status tracking (pending -> contacted -> scheduled -> completed)
 -- - Integration with Calendly for scheduling
--- 
+--
+-- ONBOARDING_STEPS TABLE:
+-- - Multi-step onboarding flow (steps 1-6)
+-- - Per-step JSON payloads and contact identifiers
+-- - Links to calendar call_event_id and meeting_id
+-- - Status: Onboarding -> Active when all steps complete
+--
 -- INTEGRATIONS:
 -- - Calendly API for booking/scheduling
 -- - Google Calendar API for event management
