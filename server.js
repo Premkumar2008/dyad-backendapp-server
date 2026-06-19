@@ -26,6 +26,7 @@ import onboardingClientRoute from "./routes/onboardingClient.js";
 import taxonomiesRoute from "./routes/taxonomies.js";
 import adminLoginRoute from "./routes/adminLogin.js";
 import callsScheduledAdminRoute from "./routes/callsScheduledAdmin.js";
+import zohoPaymentsRoute from "./routes/zohoPayments.js";
 
 const app = express();
 
@@ -78,6 +79,7 @@ app.use("/api", onboardingClientRoute);
 app.use("/api", taxonomiesRoute);
 app.use("/api", adminLoginRoute);
 app.use("/api", callsScheduledAdminRoute);
+app.use("/api", zohoPaymentsRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -1,8 +1,8 @@
 import express from "express";
 import { randomUUID } from "crypto";
-import { google } from "googleapis";
 import axios from "axios";
 import { pool } from "../config/db.js";
+import { getCalendarClient } from "../utils/googleCalendarAuth.js";
 import {
   buildGoogleMeetConferenceData,
   buildMeetingDescription,
@@ -43,19 +43,6 @@ const hasOverlap = (slotStart, slotEnd, busyStart, busyEnd) =>
   slotStart < busyEnd && slotEnd > busyStart;
 
 
-
-const auth = new google.auth.GoogleAuth({
-  keyFile: "./routes/service-account.json",
-  scopes: ["https://www.googleapis.com/auth/calendar"],
-});
-
-const getCalendarClient = async () => {
-  const client = await auth.getClient();
-  return google.calendar({
-    version: "v3",
-    auth: client,
-  });
-};
 
 const syncOnboardingMeeting = async ({ onboardingId, meetingId, callEventId }) => {
   if (!onboardingId || (!meetingId && !callEventId)) {
@@ -499,12 +486,7 @@ router.get("/calendar-events", async (req, res) => {
     const dayStart = new Date(`${date}T00:00:00`);
     const dayEnd = new Date(`${date}T23:59:59`);
 
-    const client = await auth.getClient();
-
-    const calendar = google.calendar({
-      version: "v3",
-      auth: client,
-    });
+    const calendar = await getCalendarClient();
 
     const calRes = await calendar.events.list({
       calendarId: getCalendarId(),
@@ -556,11 +538,7 @@ router.get("/calendar/available-slots", async (req, res) => {
       });
     }
 
-    const client = await auth.getClient();
-    const calendar = google.calendar({
-      version: "v3",
-      auth: client,
-    });
+    const calendar = await getCalendarClient();
 
     const calRes = await calendar.events.list({
       calendarId,
@@ -612,7 +590,12 @@ router.get("/calendar/available-slots", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch available slots",
-      error: error.message
+      error: error.message,
+      hint:
+        error.message?.includes("service account") ||
+        error.message?.includes("GOOGLE_SERVICE_ACCOUNT_JSON")
+          ? "Configure Google Calendar credentials in production."
+          : undefined,
     });
   }
 });
