@@ -7,7 +7,6 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build": "echo 'Build complete - Node.js application ready for deployment'",
-    "billing:run": "node scripts/zohoRecurringBilling.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
