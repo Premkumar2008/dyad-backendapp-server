@@ -28,6 +28,7 @@ import adminLoginRoute from "./routes/adminLogin.js";
 import callsScheduledAdminRoute from "./routes/callsScheduledAdmin.js";
 import zohoPaymentsRoute from "./routes/zohoPayments.js";
 import zohoCustomerRoute from "./routes/zohoCustomer.js";
+import googleCalendarOAuthRoute from "./routes/googleCalendarOAuth.js";
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.use("/api", adminLoginRoute);
 app.use("/api", callsScheduledAdminRoute);
 app.use("/api", zohoPaymentsRoute);
 app.use("/api", zohoCustomerRoute);
+app.use("/api", googleCalendarOAuthRoute);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

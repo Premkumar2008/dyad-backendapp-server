@@ -8,10 +8,24 @@ import {
   insertSubscription,
 } from "../utils/zohoSubscriptionDb.js";
 import { processDueSubscriptions } from "../utils/zohoRecurring.js";
+import { insertBillingEvent, findBillingEventsByOwnerId } from "../utils/zohoBillingEventsDb.js";
+import {
+  findPaymentsByOwnerId,
+  insertPaymentRecord,
+  isZohoPaymentSuccessful,
+  mapZohoPaymentStatus,
+} from "../utils/zohoPaymentsDb.js";
+import {
+  findPaymentSessionsByOwnerId,
+  insertPaymentSession,
+  updatePaymentSessionStatus,
+} from "../utils/zohoPaymentSessionsDb.js";
 
 const router = express.Router();
 
 const normalizePlan = (plan) => (plan === "yearly" ? "yearly" : "monthly");
+
+const resolveOwnerId = (body) => body.userId || body.onboardingId || body.ownerId || null;
 
 const extractPayment = (data) => data?.payment || data?.data?.payment || null;
 
@@ -66,6 +80,7 @@ router.post("/create-session", async (req, res) => {
 
     const zohoCustomerId = customerId || customer_id;
     const normalizedPlan = normalizePlan(plan);
+    const ownerId = resolveOwnerId(req.body);
 
     if (!zohoCustomerId) {
       return res.status(400).json({
@@ -80,6 +95,7 @@ router.post("/create-session", async (req, res) => {
       meta_data: [
         { key: "flow", value: "recurring_ach" },
         { key: "plan", value: normalizedPlan },
+        ...(ownerId ? [{ key: "owner_id", value: String(ownerId) }] : []),
       ],
       configurations: {
         allowed_payment_methods: ["ach_debit"],
@@ -98,10 +114,39 @@ router.post("/create-session", async (req, res) => {
     );
 
     const paymentsSession = response.data?.payments_session;
+    const zohoSessionId =
+      paymentsSession?.payments_session_id || session_id || payments_session_id;
+
+    if (zohoSessionId) {
+      await insertPaymentSession({
+        ownerId,
+        zohoCustomerId,
+        sessionType: "payment",
+        zohoSessionId,
+        amount: Number(amount),
+        currency,
+        plan: normalizedPlan,
+        metadata: { source: "create-session" },
+      });
+
+      if (ownerId) {
+        await insertBillingEvent({
+          ownerId,
+          eventType: "payment_session_created",
+          message: "Zoho payment session created",
+          payload: {
+            zohoSessionId,
+            amount: Number(amount),
+            currency,
+            plan: normalizedPlan,
+          },
+        });
+      }
+    }
 
     res.json({
-      session_id: paymentsSession?.payments_session_id,
-      payments_session_id: paymentsSession?.payments_session_id,
+      session_id: zohoSessionId,
+      payments_session_id: zohoSessionId,
       customer_id: zohoCustomerId,
       account_id: accountId,
       api_key: getApiKey(),
@@ -116,8 +161,21 @@ router.post("/create-session", async (req, res) => {
 
 router.post("/verify-payment", async (req, res) => {
   try {
-    const { payment_id, paymentId } = req.body;
+    const {
+      payment_id,
+      paymentId,
+      userId,
+      onboardingId,
+      session_id,
+      payments_session_id,
+      plan,
+      amount,
+      currency = "USD",
+    } = req.body;
+
     const zohoPaymentId = payment_id || paymentId;
+    const ownerId = resolveOwnerId(req.body);
+    const zohoSessionId = session_id || payments_session_id || null;
 
     if (!zohoPaymentId) {
       return res.status(400).json({ error: "payment_id is required" });
@@ -130,17 +188,61 @@ router.post("/verify-payment", async (req, res) => {
       return res.status(404).json({ error: "Payment not found" });
     }
 
-    const status = payment.status || payment.payment_status;
-    const successStatuses = ["succeeded", "success", "paid", "captured"];
+    const zohoStatus = payment.status || payment.payment_status;
+    const success = isZohoPaymentSuccessful(zohoStatus);
+    const mappedStatus = success ? "succeeded" : mapZohoPaymentStatus(zohoStatus);
+    const subscription = ownerId ? await findSubscriptionByOwnerId(ownerId) : null;
+
+    const paymentRecord = await insertPaymentRecord({
+      ownerId,
+      subscriptionId: subscription?.id,
+      zohoCustomerId: payment.customer_id,
+      zohoPaymentId: payment.payment_id || zohoPaymentId,
+      zohoPaymentMethodId: resolvePaymentMethodId(payment),
+      zohoSessionId,
+      amount: payment.amount ?? amount ?? null,
+      currency: payment.currency || currency,
+      plan: plan ? normalizePlan(plan) : subscription?.plan || null,
+      paymentType: "verification",
+      status: mappedStatus,
+      failureReason: success ? null : `Zoho payment status: ${zohoStatus}`,
+      zohoStatus,
+      metadata: payment,
+    });
+
+    if (zohoSessionId) {
+      await updatePaymentSessionStatus(zohoSessionId, {
+        status: success ? "completed" : "failed",
+        failureReason: success ? null : `Zoho payment status: ${zohoStatus}`,
+        metadata: { payment_id: zohoPaymentId },
+      });
+    }
+
+    if (ownerId) {
+      await insertBillingEvent({
+        ownerId,
+        subscriptionId: subscription?.id,
+        paymentId: paymentRecord.id,
+        eventType: success ? "payment_verified_success" : "payment_verified_failed",
+        message: success
+          ? "Payment verified successfully"
+          : `Payment verification failed with status ${zohoStatus}`,
+        payload: {
+          zohoPaymentId: payment.payment_id || zohoPaymentId,
+          zohoStatus,
+        },
+      });
+    }
 
     res.json({
-      success: successStatuses.includes(String(status).toLowerCase()),
+      success,
       payment_id: payment.payment_id || zohoPaymentId,
-      status,
+      status: zohoStatus,
       customer_id: payment.customer_id,
       payment_method_id: resolvePaymentMethodId(payment),
       amount: payment.amount,
       currency: payment.currency,
+      local_payment_id: paymentRecord.id,
       data: payment,
     });
   } catch (err) {
@@ -150,8 +252,9 @@ router.post("/verify-payment", async (req, res) => {
 
 router.post("/create-payment-method-session", async (req, res) => {
   try {
-    const { customerId, customer_id, description } = req.body;
+    const { customerId, customer_id, description, userId, onboardingId } = req.body;
     const zohoCustomerId = customerId || customer_id;
+    const ownerId = resolveOwnerId(req.body);
 
     if (!zohoCustomerId) {
       return res.status(400).json({ error: "customerId is required" });
@@ -165,6 +268,25 @@ router.post("/create-payment-method-session", async (req, res) => {
     const session = data?.payment_method_session;
     if (!session?.payment_method_session_id) {
       return res.status(500).json({ error: "Failed to create payment method session" });
+    }
+
+    await insertPaymentSession({
+      ownerId,
+      zohoCustomerId,
+      sessionType: "payment_method",
+      zohoSessionId: session.payment_method_session_id,
+      metadata: { source: "create-payment-method-session" },
+    });
+
+    if (ownerId) {
+      await insertBillingEvent({
+        ownerId,
+        eventType: "payment_method_session_created",
+        message: "Zoho payment method session created",
+        payload: {
+          paymentMethodSessionId: session.payment_method_session_id,
+        },
+      });
     }
 
     res.json({
@@ -198,12 +320,15 @@ router.post("/save-subscription", async (req, res) => {
       plan = "monthly",
       amount,
       currency = "USD",
+      session_id,
+      payments_session_id,
     } = req.body;
 
-    const ownerId = userId || onboardingId;
+    const ownerId = resolveOwnerId(req.body);
     const zohoCustomerId = customer_id || customerId;
     const zohoPaymentId = payment_id || paymentId;
     let zohoPaymentMethodId = payment_method_id || paymentMethodId;
+    const zohoSessionId = session_id || payments_session_id || null;
 
     if (!ownerId) {
       return res.status(400).json({ error: "userId or onboardingId is required" });
@@ -250,10 +375,48 @@ router.post("/save-subscription", async (req, res) => {
       nextCharge: getNextChargeDate(normalizedPlan),
     });
 
+    const paymentRecord = await insertPaymentRecord({
+      ownerId,
+      subscriptionId: saved.id,
+      zohoCustomerId,
+      zohoPaymentId,
+      zohoPaymentMethodId,
+      zohoSessionId,
+      amount: Number(amount),
+      currency,
+      plan: normalizedPlan,
+      paymentType: "initial",
+      status: "succeeded",
+      zohoStatus: "succeeded",
+      metadata: { source: "save-subscription" },
+    });
+
+    if (zohoSessionId) {
+      await updatePaymentSessionStatus(zohoSessionId, {
+        status: "completed",
+        metadata: { subscription_id: saved.id, payment_id: zohoPaymentId },
+      });
+    }
+
+    await insertBillingEvent({
+      ownerId,
+      subscriptionId: saved.id,
+      paymentId: paymentRecord.id,
+      eventType: "subscription_created",
+      message: "Subscription saved after successful payment",
+      payload: {
+        plan: normalizedPlan,
+        amount: Number(amount),
+        currency,
+        zohoPaymentId,
+      },
+    });
+
     res.status(201).json({
       success: true,
       isNew: true,
       data: saved,
+      payment: paymentRecord,
     });
   } catch (err) {
     handleZohoError(res, err, "save-subscription failed");
@@ -272,6 +435,51 @@ router.get("/subscription/:ownerId", async (req, res) => {
   } catch (err) {
     console.error("get subscription failed:", err);
     res.status(500).json({ error: "Failed to fetch subscription" });
+  }
+});
+
+router.get("/payments/:ownerId", async (req, res) => {
+  try {
+    const { limit, offset } = req.query;
+    const payments = await findPaymentsByOwnerId(req.params.ownerId, {
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
+
+    res.json({ success: true, total: payments.length, data: payments });
+  } catch (err) {
+    console.error("get payments failed:", err);
+    res.status(500).json({ error: "Failed to fetch payments" });
+  }
+});
+
+router.get("/payment-sessions/:ownerId", async (req, res) => {
+  try {
+    const { limit, offset } = req.query;
+    const sessions = await findPaymentSessionsByOwnerId(req.params.ownerId, {
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
+
+    res.json({ success: true, total: sessions.length, data: sessions });
+  } catch (err) {
+    console.error("get payment sessions failed:", err);
+    res.status(500).json({ error: "Failed to fetch payment sessions" });
+  }
+});
+
+router.get("/billing-events/:ownerId", async (req, res) => {
+  try {
+    const { limit, offset } = req.query;
+    const events = await findBillingEventsByOwnerId(req.params.ownerId, {
+      limit: Number(limit) || 100,
+      offset: Number(offset) || 0,
+    });
+
+    res.json({ success: true, total: events.length, data: events });
+  } catch (err) {
+    console.error("get billing events failed:", err);
+    res.status(500).json({ error: "Failed to fetch billing events" });
   }
 });
 

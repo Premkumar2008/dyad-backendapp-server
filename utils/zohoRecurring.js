@@ -5,6 +5,8 @@ import {
   markSubscriptionCharged,
   markSubscriptionFailed,
 } from "./zohoSubscriptionDb.js";
+import { insertBillingEvent } from "./zohoBillingEventsDb.js";
+import { insertPaymentRecord } from "./zohoPaymentsDb.js";
 
 const extractPayment = (data) => data?.payment || data?.data?.payment || null;
 
@@ -42,6 +44,34 @@ export const processDueSubscriptions = async (asOf = new Date()) => {
         paymentId,
         nextCharge: getNextChargeDate(subscription.plan, asOf),
       });
+
+      const paymentRecord = await insertPaymentRecord({
+        ownerId: subscription.owner_id,
+        subscriptionId: subscription.id,
+        zohoCustomerId: subscription.zoho_customer_id,
+        zohoPaymentId: paymentId,
+        zohoPaymentMethodId: subscription.zoho_payment_method_id,
+        amount: subscription.amount,
+        currency: subscription.currency || "USD",
+        plan: subscription.plan,
+        paymentType: "recurring",
+        status: "succeeded",
+        zohoStatus: payment.status || payment.payment_status || "succeeded",
+        metadata: payment,
+      });
+
+      await insertBillingEvent({
+        ownerId: subscription.owner_id,
+        subscriptionId: subscription.id,
+        paymentId: paymentRecord.id,
+        eventType: "recurring_charge_succeeded",
+        message: "Recurring subscription charge succeeded",
+        payload: {
+          zohoPaymentId: paymentId,
+          nextCharge: updated.next_charge,
+        },
+      });
+
       results.push({
         subscriptionId: subscription.id,
         success: true,
@@ -49,14 +79,42 @@ export const processDueSubscriptions = async (asOf = new Date()) => {
         nextCharge: updated.next_charge,
       });
     } catch (error) {
-      await markSubscriptionFailed(
-        subscription.id,
-        error instanceof Error ? error.message : "Charge failed"
-      );
+      const failureReason =
+        error instanceof Error ? error.message : "Charge failed";
+
+      await markSubscriptionFailed(subscription.id, failureReason);
+
+      const paymentRecord = await insertPaymentRecord({
+        ownerId: subscription.owner_id,
+        subscriptionId: subscription.id,
+        zohoCustomerId: subscription.zoho_customer_id,
+        zohoPaymentMethodId: subscription.zoho_payment_method_id,
+        amount: subscription.amount,
+        currency: subscription.currency || "USD",
+        plan: subscription.plan,
+        paymentType: "recurring",
+        status: "failed",
+        failureReason,
+        metadata: {
+          source: "recurring-billing",
+        },
+      });
+
+      await insertBillingEvent({
+        ownerId: subscription.owner_id,
+        subscriptionId: subscription.id,
+        paymentId: paymentRecord.id,
+        eventType: "recurring_charge_failed",
+        message: failureReason,
+        payload: {
+          subscriptionId: subscription.id,
+        },
+      });
+
       results.push({
         subscriptionId: subscription.id,
         success: false,
-        error: error instanceof Error ? error.message : "Charge failed",
+        error: failureReason,
       });
     }
   }

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS calls_scheduled_admin (
     mail_description  TEXT,
     scheduled_at      TIMESTAMP NOT NULL,
     meeting_id        TEXT,
+    call_event_id     TEXT,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -18,6 +19,9 @@ CREATE INDEX IF NOT EXISTS idx_calls_scheduled_admin_email
 
 CREATE INDEX IF NOT EXISTS idx_calls_scheduled_admin_meeting_id
     ON calls_scheduled_admin (meeting_id);
+
+CREATE INDEX IF NOT EXISTS idx_calls_scheduled_admin_call_event_id
+    ON calls_scheduled_admin (call_event_id);
 
 CREATE INDEX IF NOT EXISTS idx_calls_scheduled_admin_scheduled_at
     ON calls_scheduled_admin (scheduled_at);

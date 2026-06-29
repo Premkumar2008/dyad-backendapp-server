@@ -1,26 +1,25 @@
 import express from "express";
-import { randomUUID } from "crypto";
 import axios from "axios";
 import { pool } from "../config/db.js";
 import { getCalendarClient } from "../utils/googleCalendarAuth.js";
 import {
-  buildGoogleMeetConferenceData,
+  attachGoogleMeetToEvent,
+  buildEventMeetingResponse,
+  createCalendarEventWithMeet,
+  getCalendarId,
+  getCalendarTimeZone,
+} from "../utils/googleCalendarMeet.js";
+import {
   buildMeetingDescription,
-  createFallbackMeeting,
   getMeetingDetailsFromCalendarEvent,
-  isConferenceCreationError,
 } from "../utils/meetingLink.js";
 
 const router = express.Router();
 
-const DEFAULT_CALENDAR_EMAIL = "dyadcontactrequest@gmail.com";
-const CALENDAR_TIME_ZONE = "Asia/Kolkata";
 const DEFAULT_SLOT_DURATION_MINUTES = 30;
 const DEFAULT_DAY_START_TIME = "09:00";
 const DEFAULT_DAY_END_TIME = "18:00";
-
-const getCalendarId = () =>
-  process.env.EMAIL_USER_CALENDER || process.env.CALENDAR_ID || DEFAULT_CALENDAR_EMAIL;
+const CALENDAR_TIME_ZONE = getCalendarTimeZone();
 
 const isValidDate = (date) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -62,83 +61,13 @@ const syncOnboardingMeeting = async ({ onboardingId, meetingId, callEventId }) =
   );
 };
 
-const buildEventMeetingResponse = (
-  event,
-  { meetingLink = null, meetingId = null, meetingLinkSource = null } = {}
-) => {
-  const eventMeeting = getMeetingDetailsFromCalendarEvent(event);
-  const resolvedMeetingLink = meetingLink || eventMeeting.meetingLink || null;
-  const resolvedMeetingId =
-    meetingId ||
-    eventMeeting.meetingId ||
-    (resolvedMeetingLink ? randomUUID() : null);
-
-  return {
-    eventId: event.id,
-    callEventId: event.id,
-    meetingLink: resolvedMeetingLink,
-    meetingId: resolvedMeetingId,
-    meetingLinkSource:
-      meetingLinkSource ||
-      (eventMeeting.meetingLink ? "google_calendar" : null),
-    eventLink: event.htmlLink,
-    start: event.start,
-    end: event.end,
-  };
-};
-
-const tryAttachGoogleMeetToEvent = async (calendar, calendarId, eventId) => {
-  try {
-    const response = await calendar.events.patch({
-      calendarId,
-      eventId,
-      conferenceDataVersion: 1,
-      requestBody: {
-        conferenceData: buildGoogleMeetConferenceData(randomUUID()),
-      },
-    });
-
-    const meetingDetails = getMeetingDetailsFromCalendarEvent(response.data);
-    if (meetingDetails.meetingLink) {
-      return {
-        eventData: response.data,
-        ...meetingDetails,
-        meetingLinkSource: "google_calendar",
-      };
-    }
-  } catch (error) {
-    if (!isConferenceCreationError(error)) {
-      console.warn("Google Meet attach failed:", error.message);
-    }
-  }
-
-  return null;
-};
-
-const applyMeetingToEvent = async (
-  calendar,
-  calendarId,
-  eventId,
-  { meetingLink, baseDescription }
-) => {
-  const response = await calendar.events.patch({
-    calendarId,
-    eventId,
-    requestBody: {
-      location: meetingLink,
-      description: buildMeetingDescription(meetingLink, baseDescription),
-    },
-  });
-
-  return response.data;
-};
-
 router.post("/create-event", async (req, res) => {
   try {
     const {
       title,
       dateTime,
       onboardingId,
+      email,
       description: descriptionFromBody,
       createMeetLink = true,
     } = req.body;
@@ -152,82 +81,26 @@ router.post("/create-event", async (req, res) => {
 
     console.log(`[create-event] ${req.method} called -> will INSERT a new event`);
 
-    const calendar = await getCalendarClient();
-    const calendarId = getCalendarId();
-    const startTime = new Date(dateTime);
-    const endTime = new Date(startTime.getTime() + 30 * 60000);
-
-    if (Number.isNaN(startTime.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid dateTime provided",
-      });
-    }
-
-    const baseDescription =
-      descriptionFromBody || "Requested from contact form";
-
-    const eventResource = {
+    const eventResponse = await createCalendarEventWithMeet({
       summary: title ? `Contact Request from ${title}` : "Contact Request",
-      description: baseDescription,
-      start: {
-        dateTime: startTime.toISOString(),
-        timeZone: CALENDAR_TIME_ZONE,
-      },
-      end: {
-        dateTime: endTime.toISOString(),
-        timeZone: CALENDAR_TIME_ZONE,
-      },
-    };
-
-    const response = await calendar.events.insert({
-      calendarId,
-      conferenceDataVersion: 0,
-      resource: eventResource,
+      description: descriptionFromBody || "Requested from contact form",
+      dateTime,
+      attendeeEmail: email,
+      createMeetLink,
     });
 
-    let eventData = response.data;
-    let meetingLink = null;
-    let meetingId = null;
-    let meetingLinkSource = null;
-
-    if (createMeetLink !== false) {
-      const attachedMeet = await tryAttachGoogleMeetToEvent(
-        calendar,
-        calendarId,
-        eventData.id
-      );
-
-      if (attachedMeet) {
-        eventData = attachedMeet.eventData;
-        meetingLink = attachedMeet.meetingLink;
-        meetingId = attachedMeet.meetingId;
-        meetingLinkSource = attachedMeet.meetingLinkSource;
-      } else {
-        const fallbackMeeting = createFallbackMeeting();
-        meetingLink = fallbackMeeting.meetingLink;
-        meetingId = fallbackMeeting.meetingId;
-        meetingLinkSource = fallbackMeeting.source;
-      }
-
-      eventData = await applyMeetingToEvent(calendar, calendarId, eventData.id, {
-        meetingLink,
-        baseDescription,
-      });
-    }
-
-    const eventResponse = buildEventMeetingResponse(eventData, {
-      meetingLink,
-      meetingId,
-      meetingLinkSource,
-    });
     await syncOnboardingMeeting({
       onboardingId,
       meetingId: eventResponse.meetingId,
       callEventId: eventResponse.callEventId,
     });
 
-    console.log("Event created:", eventData.id, "meetingId:", eventResponse.meetingId);
+    console.log(
+      "Event created:",
+      eventResponse.eventId,
+      "meetingId:",
+      eventResponse.meetingId
+    );
 
     res.status(201).json({
       success: true,
@@ -413,29 +286,39 @@ async function handleUpdateEvent(req, res) {
       meetingId = existingMeeting.meetingId;
       meetingLinkSource = "google_calendar";
     } else if (shouldTryCreateMeet) {
-      const attachedMeet = await tryAttachGoogleMeetToEvent(
+      const attachedMeet = await attachGoogleMeetToEvent(
         calendar,
         calendarId,
         resolvedEventId
       );
 
-      if (attachedMeet) {
-        eventData = attachedMeet.eventData;
-        meetingLink = attachedMeet.meetingLink;
-        meetingId = attachedMeet.meetingId;
-        meetingLinkSource = attachedMeet.meetingLinkSource;
-      } else {
-        const fallbackMeeting = createFallbackMeeting();
-        meetingLink = fallbackMeeting.meetingLink;
-        meetingId = fallbackMeeting.meetingId;
-        meetingLinkSource = fallbackMeeting.source;
+      if (!attachedMeet) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Failed to create a unique Google Meet link for this event. Verify Google Calendar API access and calendar permissions.",
+        });
       }
 
-      eventData = await applyMeetingToEvent(calendar, calendarId, resolvedEventId, {
-        meetingLink,
-        baseDescription:
-          typeof description === "string" ? description : existingEvent.description || "",
+      eventData = attachedMeet.eventData;
+      meetingLink = attachedMeet.meetingLink;
+      meetingId = attachedMeet.meetingId;
+      meetingLinkSource = attachedMeet.meetingLinkSource;
+
+      const patched = await calendar.events.patch({
+        calendarId,
+        eventId: resolvedEventId,
+        requestBody: {
+          location: meetingLink,
+          description: buildMeetingDescription(
+            meetingLink,
+            typeof description === "string"
+              ? description
+              : existingEvent.description || ""
+          ),
+        },
       });
+      eventData = patched.data;
     }
 
     const eventResponse = buildEventMeetingResponse(eventData, {

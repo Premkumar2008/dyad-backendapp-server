@@ -1,6 +1,7 @@
 import express from "express";
 import { zohoPost } from "../utils/zohoClient.js";
 import { findByUserId, insertCustomer } from "../utils/zohoCustomersDb.js";
+import { insertBillingEvent } from "../utils/zohoBillingEventsDb.js";
 
 const router = express.Router();
 
@@ -43,6 +44,17 @@ router.post("/customer", async (req, res) => {
       name,
       email,
       phone: phone || null,
+    });
+
+    await insertBillingEvent({
+      ownerId,
+      eventType: "customer_created",
+      message: "Zoho customer created",
+      payload: {
+        zohoCustomerId,
+        email,
+        name,
+      },
     });
 
     res.json({

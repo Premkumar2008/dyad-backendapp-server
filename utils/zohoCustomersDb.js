@@ -1,24 +1,7 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { pool } from "../config/db.js";
+import { ensureAllZohoTables } from "./zohoSchema.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-let tableReady = null;
-
-export const ensureZohoCustomersTable = () => {
-  if (!tableReady) {
-    const schemaPath = path.resolve(__dirname, "../database/zoho-customers-schema.sql");
-    const sql = fs.readFileSync(schemaPath, "utf8");
-    tableReady = pool.query(sql).catch((err) => {
-      tableReady = null;
-      console.error("Zoho customers table setup error:", err);
-      throw err;
-    });
-  }
-  return tableReady;
-};
+export const ensureZohoCustomersTable = () => ensureAllZohoTables();
 
 export const findByUserId = async (userId) => {
   await ensureZohoCustomersTable();

@@ -71,12 +71,11 @@ export const generateUniqueMeetingCode = () => {
 
 export const createFallbackMeeting = () => {
   const meetingId = generateUniqueMeetingCode();
-  const envLink = normalizeMeetingUrl(process.env.MEETING_LINK);
 
   return {
     meetingId,
-    meetingLink: envLink || `https://meet.google.com/${meetingId}`,
-    source: envLink ? "env_fallback" : "generated",
+    meetingLink: `https://meet.google.com/${meetingId}`,
+    source: "generated",
   };
 };
 
@@ -86,14 +85,15 @@ export const buildMeetingLinkFromId = (meetingId) => {
   }
 
   if (meetingId.startsWith("http")) {
-    return meetingId;
+    return normalizeMeetingUrl(meetingId);
   }
 
-  if (/^[a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3}$/i.test(meetingId)) {
-    return `https://meet.google.com/${meetingId}`;
+  const meetCode = extractMeetCodeFromLink(meetingId) || meetingId;
+  if (/^[a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3}$/i.test(meetCode)) {
+    return `https://meet.google.com/${meetCode}`;
   }
 
-  return normalizeMeetingUrl(process.env.MEETING_LINK);
+  return null;
 };
 
 export const buildMeetingDescription = (meetingLink, baseDescription = "") => {
