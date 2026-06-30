@@ -21,6 +21,7 @@
   "license": "ISC",
   "description": "Dyad backend server with authentication and user management",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1076.0",
     "axios": "^1.15.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
@@ -29,6 +30,7 @@
     "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
     "nodemailer": "^8.0.2",
     "pdfkit": "^0.19.1",
     "pg": "^8.20.0",

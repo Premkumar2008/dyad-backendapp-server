@@ -12,10 +12,13 @@ import { insertBillingEvent, findBillingEventsByOwnerId } from "../utils/zohoBil
 import {
   findPaymentsByOwnerId,
   insertPaymentRecord,
+  isZohoPaymentAccepted,
+  isZohoPaymentPending,
   isZohoPaymentSuccessful,
   mapZohoPaymentStatus,
 } from "../utils/zohoPaymentsDb.js";
 import {
+  findPaymentSessionByZohoSessionId,
   findPaymentSessionsByOwnerId,
   insertPaymentSession,
   updatePaymentSessionStatus,
@@ -28,6 +31,27 @@ const normalizePlan = (plan) => (plan === "yearly" ? "yearly" : "monthly");
 const resolveOwnerId = (body) => body.userId || body.onboardingId || body.ownerId || null;
 
 const extractPayment = (data) => data?.payment || data?.data?.payment || null;
+
+const extractPaymentSession = (data) =>
+  data?.payments_session || data?.payment_session || data?.data?.payments_session || null;
+
+const mergeCallbackPayload = (req) => ({
+  ...req.query,
+  ...req.body,
+});
+
+const resolveCallbackPaymentId = (payload) =>
+  payload.payment_id ||
+  payload.paymentId ||
+  payload.payments?.[0]?.payment_id ||
+  null;
+
+const resolveCallbackSessionId = (payload) =>
+  payload.payments_session_id ||
+  payload.session_id ||
+  payload.paymentsSessionId ||
+  payload.sessionId ||
+  null;
 
 const resolvePaymentMethodId = (payment, paymentMethodId) => {
   if (paymentMethodId) return paymentMethodId;
@@ -55,6 +79,190 @@ const handleZohoError = (res, err, fallbackMessage) => {
         }
       : err.response?.data || { error: fallbackMessage }
   );
+};
+
+const persistVerifiedPayment = async ({
+  payment,
+  zohoPaymentId,
+  ownerId,
+  zohoSessionId,
+  plan,
+  amount,
+  currency = "USD",
+}) => {
+  const zohoStatus = payment.status || payment.payment_status;
+  const succeeded = isZohoPaymentSuccessful(zohoStatus);
+  const pending = isZohoPaymentPending(zohoStatus);
+  const accepted = isZohoPaymentAccepted(zohoStatus);
+  const mappedStatus = succeeded ? "succeeded" : mapZohoPaymentStatus(zohoStatus);
+  const subscription = ownerId ? await findSubscriptionByOwnerId(ownerId) : null;
+
+  const paymentRecord = await insertPaymentRecord({
+    ownerId,
+    subscriptionId: subscription?.id,
+    zohoCustomerId: payment.customer_id,
+    zohoPaymentId: payment.payment_id || zohoPaymentId,
+    zohoPaymentMethodId: resolvePaymentMethodId(payment),
+    zohoSessionId,
+    amount: payment.amount ?? amount ?? null,
+    currency: payment.currency || currency,
+    plan: plan ? normalizePlan(plan) : subscription?.plan || null,
+    paymentType: "verification",
+    status: mappedStatus,
+    failureReason: accepted ? null : `Zoho payment status: ${zohoStatus}`,
+    zohoStatus,
+    metadata: payment,
+  });
+
+  if (zohoSessionId) {
+    await updatePaymentSessionStatus(zohoSessionId, {
+      status: accepted ? (pending ? "pending" : "completed") : "failed",
+      failureReason: accepted ? null : `Zoho payment status: ${zohoStatus}`,
+      metadata: { payment_id: payment.payment_id || zohoPaymentId },
+    });
+  }
+
+  if (ownerId) {
+    await insertBillingEvent({
+      ownerId,
+      subscriptionId: subscription?.id,
+      paymentId: paymentRecord.id,
+      eventType: accepted
+        ? pending
+          ? "payment_verified_pending"
+          : "payment_verified_success"
+        : "payment_verified_failed",
+      message: accepted
+        ? pending
+          ? "ACH payment initiated and pending settlement"
+          : "Payment verified successfully"
+        : `Payment verification failed with status ${zohoStatus}`,
+      payload: {
+        zohoPaymentId: payment.payment_id || zohoPaymentId,
+        zohoStatus,
+        pending,
+      },
+    });
+  }
+
+  return {
+    accepted,
+    succeeded,
+    pending,
+    zohoStatus,
+    paymentRecord,
+    subscription,
+    payment,
+  };
+};
+
+const resolvePaymentFromSession = async (zohoSessionId) => {
+  const sessionData = await zohoGet(`/paymentsessions/${zohoSessionId}`);
+  const session = extractPaymentSession(sessionData);
+
+  if (!session) {
+    return { session: null, payment: null, zohoPaymentId: null };
+  }
+
+  const sessionStatus = session.status;
+  const latestPayment = session.payments?.[0] || null;
+  const zohoPaymentId = latestPayment?.payment_id || null;
+
+  if (zohoPaymentId) {
+    const paymentData = await zohoGet(`/payments/${zohoPaymentId}`);
+    const payment = extractPayment(paymentData);
+    if (payment) {
+      return { session, payment, zohoPaymentId };
+    }
+  }
+
+  if (isZohoPaymentAccepted(sessionStatus)) {
+    return {
+      session,
+      payment: {
+        payment_id: zohoPaymentId,
+        status: sessionStatus,
+        customer_id: session.customer_id,
+        amount: session.amount,
+        currency: session.currency,
+        payment_method_id: latestPayment?.payment_method_id,
+      },
+      zohoPaymentId,
+    };
+  }
+
+  return { session, payment: null, zohoPaymentId };
+};
+
+const verifyZohoPayment = async ({
+  paymentId,
+  sessionId,
+  ownerId,
+  plan,
+  amount,
+  currency = "USD",
+}) => {
+  let payment = null;
+  let zohoPaymentId = paymentId || null;
+  let zohoSessionId = sessionId || null;
+
+  if (zohoPaymentId) {
+    const data = await zohoGet(`/payments/${zohoPaymentId}`);
+    payment = extractPayment(data);
+  } else if (zohoSessionId) {
+    const resolved = await resolvePaymentFromSession(zohoSessionId);
+    payment = resolved.payment;
+    zohoPaymentId = resolved.zohoPaymentId;
+  }
+
+  if (!payment && zohoSessionId) {
+    const localSession = await findPaymentSessionByZohoSessionId(zohoSessionId);
+    if (localSession && !ownerId) {
+      ownerId = localSession.owner_id;
+      plan = plan || localSession.plan;
+      amount = amount ?? localSession.amount;
+      currency = currency || localSession.currency;
+    }
+  }
+
+  if (!payment) {
+    return {
+      ok: false,
+      status: 404,
+      body: {
+        success: false,
+        error: "Payment not found",
+        hint: "Provide payment_id or payments_session_id. For ACH, session lookup may succeed after settlement.",
+      },
+    };
+  }
+
+  const result = await persistVerifiedPayment({
+    payment,
+    zohoPaymentId,
+    ownerId,
+    zohoSessionId,
+    plan,
+    amount,
+    currency,
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: result.accepted,
+      pending: result.pending,
+      payment_id: result.payment.payment_id || zohoPaymentId,
+      status: result.zohoStatus,
+      customer_id: result.payment.customer_id,
+      payment_method_id: resolvePaymentMethodId(result.payment),
+      amount: result.payment.amount,
+      currency: result.payment.currency,
+      local_payment_id: result.paymentRecord.id,
+      data: result.payment,
+    },
+  };
 };
 
 router.post("/create-session", async (req, res) => {
@@ -114,8 +322,7 @@ router.post("/create-session", async (req, res) => {
     );
 
     const paymentsSession = response.data?.payments_session;
-    const zohoSessionId =
-      paymentsSession?.payments_session_id || session_id || payments_session_id;
+    const zohoSessionId = paymentsSession?.payments_session_id;
 
     if (zohoSessionId) {
       await insertPaymentSession({
@@ -161,94 +368,186 @@ router.post("/create-session", async (req, res) => {
 
 router.post("/verify-payment", async (req, res) => {
   try {
-    const {
-      payment_id,
-      paymentId,
-      userId,
-      onboardingId,
-      session_id,
-      payments_session_id,
-      plan,
-      amount,
-      currency = "USD",
-    } = req.body;
-
-    const zohoPaymentId = payment_id || paymentId;
+    const payload = mergeCallbackPayload(req);
     const ownerId = resolveOwnerId(req.body);
-    const zohoSessionId = session_id || payments_session_id || null;
+    const zohoPaymentId = resolveCallbackPaymentId(payload);
+    const zohoSessionId = resolveCallbackSessionId(payload);
 
-    if (!zohoPaymentId) {
-      return res.status(400).json({ error: "payment_id is required" });
+    if (!zohoPaymentId && !zohoSessionId) {
+      return res.status(400).json({
+        error: "payment_id or payments_session_id is required",
+      });
     }
 
-    const data = await zohoGet(`/payments/${zohoPaymentId}`);
-    const payment = extractPayment(data);
-
-    if (!payment) {
-      return res.status(404).json({ error: "Payment not found" });
-    }
-
-    const zohoStatus = payment.status || payment.payment_status;
-    const success = isZohoPaymentSuccessful(zohoStatus);
-    const mappedStatus = success ? "succeeded" : mapZohoPaymentStatus(zohoStatus);
-    const subscription = ownerId ? await findSubscriptionByOwnerId(ownerId) : null;
-
-    const paymentRecord = await insertPaymentRecord({
+    const result = await verifyZohoPayment({
+      paymentId: zohoPaymentId,
+      sessionId: zohoSessionId,
       ownerId,
-      subscriptionId: subscription?.id,
-      zohoCustomerId: payment.customer_id,
-      zohoPaymentId: payment.payment_id || zohoPaymentId,
-      zohoPaymentMethodId: resolvePaymentMethodId(payment),
-      zohoSessionId,
-      amount: payment.amount ?? amount ?? null,
-      currency: payment.currency || currency,
-      plan: plan ? normalizePlan(plan) : subscription?.plan || null,
-      paymentType: "verification",
-      status: mappedStatus,
-      failureReason: success ? null : `Zoho payment status: ${zohoStatus}`,
-      zohoStatus,
-      metadata: payment,
+      plan: req.body.plan,
+      amount: req.body.amount,
+      currency: req.body.currency || "USD",
     });
 
-    if (zohoSessionId) {
-      await updatePaymentSessionStatus(zohoSessionId, {
-        status: success ? "completed" : "failed",
-        failureReason: success ? null : `Zoho payment status: ${zohoStatus}`,
-        metadata: { payment_id: zohoPaymentId },
-      });
-    }
-
-    if (ownerId) {
-      await insertBillingEvent({
-        ownerId,
-        subscriptionId: subscription?.id,
-        paymentId: paymentRecord.id,
-        eventType: success ? "payment_verified_success" : "payment_verified_failed",
-        message: success
-          ? "Payment verified successfully"
-          : `Payment verification failed with status ${zohoStatus}`,
-        payload: {
-          zohoPaymentId: payment.payment_id || zohoPaymentId,
-          zohoStatus,
-        },
-      });
-    }
-
-    res.json({
-      success,
-      payment_id: payment.payment_id || zohoPaymentId,
-      status: zohoStatus,
-      customer_id: payment.customer_id,
-      payment_method_id: resolvePaymentMethodId(payment),
-      amount: payment.amount,
-      currency: payment.currency,
-      local_payment_id: paymentRecord.id,
-      data: payment,
-    });
+    res.status(result.status).json(result.body);
   } catch (err) {
     handleZohoError(res, err, "verify-payment failed");
   }
 });
+
+router.post("/verify-session", async (req, res) => {
+  try {
+    const payload = mergeCallbackPayload(req);
+    const zohoSessionId = resolveCallbackSessionId(payload);
+
+    if (!zohoSessionId) {
+      return res.status(400).json({ error: "payments_session_id is required" });
+    }
+
+    const result = await verifyZohoPayment({
+      sessionId: zohoSessionId,
+      ownerId: resolveOwnerId(req.body),
+      plan: req.body.plan,
+      amount: req.body.amount,
+      currency: req.body.currency || "USD",
+    });
+
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    handleZohoError(res, err, "verify-session failed");
+  }
+});
+
+router.get("/payment-session/:sid", async (req, res) => {
+  try {
+    const zohoSessionId = req.params.sid;
+
+    if (!zohoSessionId) {
+      return res.status(400).json({ error: "session id is required" });
+    }
+
+    const localSession = await findPaymentSessionByZohoSessionId(zohoSessionId);
+    const { session, payment, zohoPaymentId } = await resolvePaymentFromSession(zohoSessionId);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: "Payment session not found",
+        payments_session_id: zohoSessionId,
+      });
+    }
+
+    const sessionStatus = session.status;
+    const paymentStatus = payment?.status || payment?.payment_status || null;
+    const effectiveStatus = paymentStatus || sessionStatus;
+    const succeeded = isZohoPaymentSuccessful(effectiveStatus);
+    const pending = isZohoPaymentPending(effectiveStatus);
+    const accepted = isZohoPaymentAccepted(effectiveStatus);
+
+    res.json({
+      success: accepted,
+      pending,
+      succeeded,
+      payments_session_id: session.payments_session_id || zohoSessionId,
+      session_status: sessionStatus,
+      payment_id: zohoPaymentId || payment?.payment_id || null,
+      payment_status: paymentStatus,
+      customer_id: payment?.customer_id || session.customer_id || localSession?.zoho_customer_id,
+      payment_method_id: resolvePaymentMethodId(payment),
+      amount: payment?.amount ?? session.amount ?? localSession?.amount,
+      currency: payment?.currency || session.currency || localSession?.currency || "USD",
+      plan: localSession?.plan || null,
+      owner_id: localSession?.owner_id || null,
+      local_session: localSession,
+      session,
+      payment,
+    });
+  } catch (err) {
+    handleZohoError(res, err, "get payment-session failed");
+  }
+});
+
+const handlePaymentCallback = async (req, res, { expectedOutcome }) => {
+  try {
+    const payload = mergeCallbackPayload(req);
+    const zohoSessionId = resolveCallbackSessionId(payload);
+    const zohoPaymentId = resolveCallbackPaymentId(payload);
+    const sessionStatus =
+      payload.payment_session_status || payload.paymentSessionStatus || null;
+    const paymentStatus = payload.payment_status || payload.paymentStatus || null;
+
+    if (!zohoPaymentId && !zohoSessionId) {
+      return res.status(400).json({
+        success: false,
+        error: "payments_session_id or payment_id is required",
+      });
+    }
+
+    const localSession = zohoSessionId
+      ? await findPaymentSessionByZohoSessionId(zohoSessionId)
+      : null;
+
+    const result = await verifyZohoPayment({
+      paymentId: zohoPaymentId,
+      sessionId: zohoSessionId,
+      ownerId: resolveOwnerId(payload) || localSession?.owner_id,
+      plan: payload.plan || localSession?.plan,
+      amount: payload.amount ?? localSession?.amount,
+      currency: payload.currency || localSession?.currency || "USD",
+    });
+
+    if (!result.ok) {
+      if (expectedOutcome === "failure") {
+        if (zohoSessionId) {
+          await updatePaymentSessionStatus(zohoSessionId, {
+            status: "failed",
+            failureReason:
+              paymentStatus || sessionStatus || "Payment reported as failed by callback",
+            metadata: { source: "payment-failure-callback", payload },
+          });
+        }
+
+        return res.json({
+          success: false,
+          message: "Payment failed",
+          payments_session_id: zohoSessionId,
+          payment_session_status: sessionStatus,
+          payment_status: paymentStatus,
+        });
+      }
+
+      return res.status(result.status).json(result.body);
+    }
+
+    if (expectedOutcome === "failure" && result.body.success) {
+      return res.json({
+        ...result.body,
+        message:
+          "Payment is pending or succeeded in Zoho despite failure callback. ACH payments often stay pending until settlement.",
+      });
+    }
+
+    return res.json({
+      ...result.body,
+      payments_session_id: zohoSessionId,
+      payment_session_status: sessionStatus,
+    });
+  } catch (err) {
+    handleZohoError(res, err, `${expectedOutcome} callback failed`);
+  }
+};
+
+router.get("/zoho/payment-success", (req, res) =>
+  handlePaymentCallback(req, res, { expectedOutcome: "success" })
+);
+router.post("/zoho/payment-success", (req, res) =>
+  handlePaymentCallback(req, res, { expectedOutcome: "success" })
+);
+router.get("/zoho/payment-failure", (req, res) =>
+  handlePaymentCallback(req, res, { expectedOutcome: "failure" })
+);
+router.post("/zoho/payment-failure", (req, res) =>
+  handlePaymentCallback(req, res, { expectedOutcome: "failure" })
+);
 
 router.post("/create-payment-method-session", async (req, res) => {
   try {
@@ -326,7 +625,7 @@ router.post("/save-subscription", async (req, res) => {
 
     const ownerId = resolveOwnerId(req.body);
     const zohoCustomerId = customer_id || customerId;
-    const zohoPaymentId = payment_id || paymentId;
+    let zohoPaymentId = payment_id || paymentId;
     let zohoPaymentMethodId = payment_method_id || paymentMethodId;
     const zohoSessionId = session_id || payments_session_id || null;
 
@@ -355,6 +654,14 @@ router.post("/save-subscription", async (req, res) => {
       const data = await zohoGet(`/payments/${zohoPaymentId}`);
       const payment = extractPayment(data);
       zohoPaymentMethodId = resolvePaymentMethodId(payment);
+    }
+
+    if (!zohoPaymentMethodId && zohoSessionId) {
+      const resolved = await resolvePaymentFromSession(zohoSessionId);
+      zohoPaymentId = zohoPaymentId || resolved.zohoPaymentId;
+      if (resolved.payment) {
+        zohoPaymentMethodId = resolvePaymentMethodId(resolved.payment);
+      }
     }
 
     if (!zohoPaymentMethodId) {

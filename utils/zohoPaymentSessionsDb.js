@@ -75,6 +75,23 @@ export const updatePaymentSessionStatus = async (
   return result.rows[0] || null;
 };
 
+export const findPaymentSessionByZohoSessionId = async (zohoSessionId) => {
+  await ensureAllZohoTables();
+
+  const result = await pool.query(
+    `
+      SELECT *
+      FROM zoho_payment_sessions
+      WHERE zoho_session_id = $1
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [zohoSessionId]
+  );
+
+  return result.rows[0] || null;
+};
+
 export const findPaymentSessionsByOwnerId = async (
   ownerId,
   { limit = 50, offset = 0 } = {}

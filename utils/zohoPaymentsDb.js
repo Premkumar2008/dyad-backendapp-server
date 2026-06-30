@@ -2,9 +2,22 @@ import { pool } from "../config/db.js";
 import { ensureAllZohoTables } from "./zohoSchema.js";
 
 const SUCCESS_STATUSES = new Set(["succeeded", "success", "paid", "captured"]);
+const PENDING_STATUSES = new Set([
+  "pending",
+  "in_progress",
+  "processing",
+  "initiated",
+  "submitted",
+]);
 
 export const isZohoPaymentSuccessful = (status) =>
   SUCCESS_STATUSES.has(String(status || "").toLowerCase());
+
+export const isZohoPaymentPending = (status) =>
+  PENDING_STATUSES.has(String(status || "").toLowerCase());
+
+export const isZohoPaymentAccepted = (status) =>
+  isZohoPaymentSuccessful(status) || isZohoPaymentPending(status);
 
 export const mapZohoPaymentStatus = (status) => {
   const normalized = String(status || "").toLowerCase();
@@ -13,6 +26,9 @@ export const mapZohoPaymentStatus = (status) => {
   }
   if (["failed", "failure", "declined", "cancelled", "canceled"].includes(normalized)) {
     return "failed";
+  }
+  if (PENDING_STATUSES.has(normalized)) {
+    return "pending";
   }
   return "pending";
 };
